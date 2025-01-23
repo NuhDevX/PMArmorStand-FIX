@@ -4,6 +4,16 @@ declare(strict_types=1);
 
 namespace muqsit\pmarmorstand\entity;
 
+use pocketmine\inventory\SimpleInventory;
+use pocketmine\block\VanillaBlocks;
+use pocketmine\network\mcpe\protocol\types\inventory\ItemStackWrapper;
+use pocketmine\network\mcpe\protocol\MobArmorEquipmentPacket;
+use pocketmine\block\BlockTypeIds;
+use pocketmine\item\ItemTypeIds;
+use pocketmine\inventory\ArmorInventory;
+use pocketmine\inventory\Inventory;
+use pocketmine\item\Armor;
+use muqsit\pmarmorstand\util\EquipmentSlot;
 use muqsit\pmarmorstand\entity\ticker\ArmorStandEntityTicker;
 use muqsit\pmarmorstand\entity\ticker\WobbleArmorStandEntityTicker;
 use muqsit\pmarmorstand\event\ArmorStandMoveEvent;
@@ -48,7 +58,8 @@ class ArmorStandEntity extends Living{
 	protected const GRAVITY = 0.04;
 
 	protected $vibrateTimer = 0;
-        
+        private Inventory $inventory;
+	private SimpleInventory $simpleInventory;
 
 	public static function getNetworkTypeId() : string{
 		return EntityIds::ARMOR_STAND;
@@ -145,7 +156,99 @@ class ArmorStandEntity extends Living{
 			ArmorStandPoseRegistry::instance()->get($tag_pose->getValue()) :
 			ArmorStandPoseRegistry::instance()->default());
 	}
+
+	public function onInteract(Player $player, Vector3 $clickPos) : bool{
+		if($player->isSneaking()){
+			$this->setPose(($this->getPose() + 1) % 13);
+			return true;
+		}
+
+		if(!$player->isSpectator()){
+			$targetSlot = EquipmentSlot::MAINHAND;
+			$isArmorSlot = false;
+
+			if($this->inventory->getItem() instanceof Armor){
+				$targetSlot = $this->inventory->getItem()->getArmorSlot();
+				$isArmorSlot = true;
+			}elseif($this->inventory->getItem()->getTypeId() === ItemTypeIds::fromBlockTypeId(BlockTypeIds::MOB_HEAD) || $this->inventory->getItem()->getTypeId() === ItemTypeIds::fromBlockTypeId(BlockTypeIds::PUMPKIN)){
+				$targetSlot = $this->armorInventory->getHelmet();
+				$isArmorSlot = true;
+			}elseif($item->isNull()){
+				$clickOffset = $clickPos->y - $this->y;
+
+				if($clickOffset >= 0.1 && $clickOffset < 0.55 && !$this->armorInventory->getItem(ArmorInventory::SLOT_FEET)->isNull()){
+					$targetSlot = $this->armorInventory->getBoots();
+					$isArmorSlot = true;
+				}elseif($clickOffset >= 0.9 && $clickOffset < 1.6 && !$this->armorInventory->getItem(ArmorInventory::SLOT_CHEST)->isNull()){
+					$targetSlot = $this->armorInventory->getChestplate();
+					$isArmorSlot = true;
+				}elseif($clickOffset >= 0.4 && $clickOffset < 1.2 && !$this->armorInventory->getItem(ArmorInventory::SLOT_LEGS)->isNull()){
+					$targetSlot = $this->armorInventory->getLeggings();
+					$isArmorSlot = true;
+				}elseif($clickOffset >= 1.6 && !$this->armorInventory->getItem(ArmorInventory::SLOT_HEAD)->isNull()){
+					$targetSlot = $this->armorInventory->getHelmet();
+					$isArmorSlot = true;
+				}
+			}
+
+			//$this->getWorld()->addSound($this, LevelSoundEventPacket::SOUND_MOB_ARMOR_STAND_PLACE); nanti
+
+			$this->tryChangeEquipment($player, $this->inventory->getItem(), $targetSlot, $isArmorSlot);
+
+			return true;
+		}
+
+		return false;
+	}
+
+	protected function tryChangeEquipment(Player $player, Item $targetItem, int $slot, bool $isArmorSlot = false) : void{
+		$sourceItem = $isArmorSlot ? $this->armorInventory->getItem($slot) : $this->equipment->getItem($slot);
+
+		if($isArmorSlot){
+			$this->armorInventory->setItem($slot, (clone $targetItem)->setCount(1));
+		}else{
+			$this->equipment->setItem($slot, (clone $targetItem)->setCount(1));
+		}
+
+		if(!$targetItem->isNull() && $player->isSurvival()){
+			$targetItem->pop();
+		}
+
+		if(!$targetItem->isNull() && $targetItem->equals($sourceItem)){
+			$targetItem->setCount($targetItem->getCount() + $sourceItem->getCount());
+		}else{
+			$player->getInventory()->addItem($sourceItem);
+		}
+
+		$this->equipment->sendContents($player);
+		$this->sendContents($player);
+	}
 	
+	public function sendContents($target) : void{
+		if($target instanceof Player){
+			$target = [$target];
+		}
+
+		$pk = new MobArmorEquipmentPacket();
+		$pk->actorRuntimeId = $this->armorInventory->getHolder()->getId();
+		$pk->head = ItemStackWrapper::legacy($this->armorInventory->getHelmet());
+		$pk->chest = ItemStackWrapper::legacy($this->armorInventory->getChestplate());
+		$pk->legs = ItemStackWrapper::legacy($this->armorInventory->getLeggings());
+		$pk->feet = ItemStackWrapper::legacy($this->armorInventory->getBoots());
+		$pk->body = ItemStackWrapper::legacy(VanillaBlocks::AIR()->asItem());
+		$pk->encode();
+
+		foreach($target as $player){
+			if($player === $this->armorInventory->getHolder()){
+				$pk2 = new InventoryContentPacket();
+				$pk2->windowId = $player->getCurrentWindow($this);
+				$pk2->items = array_map([ItemStackWrapper::class, 'legacy'], $this->simpleInventory->getContents(true));
+				$player->getNetworkSession()->sendDataPacket($pk2);
+			}else{
+				$player->getNetworkSession()->sendDataPacket($pk);
+			}
+		}
+	}
 
 	public function saveNBT() : CompoundTag{
 		$nbt = parent::saveNBT();
