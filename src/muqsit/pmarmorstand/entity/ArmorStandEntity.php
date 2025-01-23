@@ -33,25 +33,30 @@ use pocketmine\player\Player;
 
 class ArmorStandEntity extends Living{
 
-	private const TAG_ARMOR_INVENTORY = "ArmorInventory";
-	private const TAG_HELD_ITEM = "HeldItem";
-	private const TAG_POSE = "Pose";
+	public const TAG_MAINHAND = "Mainhand";
+	public const TAG_OFFHAND = "Offhand";
+	public const TAG_POSE_INDEX = "PoseIndex";
+	public const TAG_POSE = "Pose";
+	public const TAG_ARMOR = "Armor";
+
+	/** @var ArmorStandEntityEquipment */
+	protected $equipment;
+
+	public const WIDTH = 0.5;
+	public const HEIGHT = 1.975;
+
+	protected const GRAVITY = 0.04;
+
+	protected $vibrateTimer = 0;
+        
 
 	public static function getNetworkTypeId() : string{
 		return EntityIds::ARMOR_STAND;
 	}
 
-	protected int $maxDeadTicks = 0;
-
-	private ArmorStandPose $pose;
-	protected Item $item_in_hand;
-	protected bool $can_be_moved_by_currents = true;
-
-	/** @var ArmorStandEntityTicker[] */
-	protected array $armor_stand_entity_tickers = [];
 
 	protected function getInitialSizeInfo() : EntitySizeInfo{
-		return new EntitySizeInfo(1.975, 0.5);
+		return new EntitySizeInfo(self::HEIGHT, self::WIDTH);
 	}
 
 	public function getName() : string{
@@ -88,12 +93,16 @@ class ArmorStandEntity extends Living{
 		return $this->pose;
 	}
 
+	public function getEquipment() : ArmorStandEntityEquipment{
+		return $this->equipment;
+	}
+
 	public function setPose(ArmorStandPose $pose) : void{
 		$this->pose = $pose;
 		$this->networkPropertiesDirty = true;
 		$this->scheduleUpdate();
 	}
-
+	
 	protected function sendSpawnPacket(Player $player) : void{
 		parent::sendSpawnPacket($player);
 		$player->getNetworkSession()->sendDataPacket(MobEquipmentPacket::create($this->getId(), ItemStackWrapper::legacy(TypeConverter::getInstance()->coreItemStackToNet($this->getItemInHand())), 0, 0, ContainerIds::INVENTORY));
@@ -105,24 +114,38 @@ class ArmorStandEntity extends Living{
 	}
 
 	protected function initEntity(CompoundTag $nbt) : void{
+		$this->setMaxHealth(6);
+		$this->setNoClientPredictions(true);
+
 		parent::initEntity($nbt);
 
-		$armor_inventory_tag = $nbt->getListTag(self::TAG_ARMOR_INVENTORY);
-		if($armor_inventory_tag !== null){
-			$armor_inventory = $this->getArmorInventory();
-			/** @var CompoundTag $tag */
-			foreach($armor_inventory_tag as $tag){
-				$armor_inventory->setItem($tag->getByte("Slot"), Item::nbtDeserialize($tag));
+		$this->equipment = new ArmorStandEntityEquipment($this);
+
+		if($nbt->getTag(self::TAG_ARMOR, ListTag::class)){
+			$armors = $nbt->getListTag(self::TAG_ARMOR);
+
+			/** @var CompoundTag $armor */
+			foreach($armors as $armor){
+				$slot = $armor->getByte("Slot", 0);
+
+				$this->armorInventory->setItem($slot, Item::nbtDeserialize($armor));
 			}
 		}
 
-		$item_in_hand_tag = $nbt->getCompoundTag(self::TAG_HELD_ITEM);
-		$this->item_in_hand = $item_in_hand_tag !== null ? Item::nbtDeserialize($item_in_hand_tag) : VanillaItems::AIR();
+		if($nbt->getTag(self::TAG_MAINHAND, CompoundTag::class)){
+			$this->equipment->setItemInHand(Item::nbtDeserialize($nbt->getCompoundTag(self::TAG_MAINHAND)));
+		}
+		if($nbt->getTag(self::TAG_OFFHAND, CompoundTag::class)){
+			$this->equipment->setOffhandItem(Item::nbtDeserialize(nbt->getCompoundTag(self::TAG_OFFHAND)));
+		}
 
+		$this->setPose(min($nbt->getInt(self::TAG_POSE_INDEX, 0), 12));
+		
 		$this->setPose(($tag_pose = $nbt->getTag(self::TAG_POSE)) instanceof StringTag ?
 			ArmorStandPoseRegistry::instance()->get($tag_pose->getValue()) :
 			ArmorStandPoseRegistry::instance()->default());
 	}
+	
 
 	public function saveNBT() : CompoundTag{
 		$nbt = parent::saveNBT();
