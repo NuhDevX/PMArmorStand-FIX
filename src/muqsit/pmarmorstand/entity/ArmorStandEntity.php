@@ -49,6 +49,8 @@ class ArmorStandEntity extends Living{
 	public const TAG_POSE_INDEX = "PoseIndex";
 	public const TAG_POSE = "Pose";
 	public const TAG_ARMOR = "Armor";
+	private const TAG_ARMOR_INVENTORY = "ArmorInventory";
+	private const TAG_HELD_ITEM = "HeldItem";
 
 	/** @var ArmorStandEntityEquipment */
 	protected $equipment;
