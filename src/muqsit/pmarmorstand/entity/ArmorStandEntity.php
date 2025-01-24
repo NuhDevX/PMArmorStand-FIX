@@ -13,6 +13,7 @@ use pocketmine\item\ItemTypeIds;
 use pocketmine\inventory\ArmorInventory;
 use pocketmine\inventory\Inventory;
 use pocketmine\item\Armor;
+use muqsit\pmarmorstand\sound\ArmorStandPlaceEvent;
 use muqsit\pmarmorstand\util\EquipmentSlot;
 use muqsit\pmarmorstand\entity\ticker\ArmorStandEntityTicker;
 use muqsit\pmarmorstand\entity\ticker\WobbleArmorStandEntityTicker;
@@ -20,6 +21,7 @@ use muqsit\pmarmorstand\event\ArmorStandMoveEvent;
 use muqsit\pmarmorstand\pose\ArmorStandPose;
 use muqsit\pmarmorstand\pose\ArmorStandPoseRegistry;
 use muqsit\pmarmorstand\vanilla\ExtraVanillaItems;
+use muqsit\pmarmorstand\event\PlayerChangeArmorStandPoseEvent;
 use pocketmine\entity\EntitySizeInfo;
 use pocketmine\entity\Living;
 use pocketmine\entity\projectile\Arrow;
@@ -157,9 +159,15 @@ class ArmorStandEntity extends Living{
 			ArmorStandPoseRegistry::instance()->default());
 	}
 
-	public function onInteract(Player $player, Vector3 $clickPos) : bool{
+	public function onInteract(Player $player, Vector3 $clickPos) : bool{		
 		if($player->isSneaking()){
-			$this->setPose(($this->getPose() + 1) % 13);
+		      $old_pose = $this->getPose();
+	               $new_pose = ArmorStandPoseRegistry::instance()->next($old_pose);
+		        $ev = new PlayerChangeArmorStandPoseEvent($old_pose, $new_pose, $player);
+		        $ev->call();
+			   if(!$ev->isCancelled()){
+				$entity->setPose($ev->getNewPose());
+			   }
 			return true;
 		}
 
@@ -173,7 +181,7 @@ class ArmorStandEntity extends Living{
 			}elseif($this->inventory->getItem()->getTypeId() === ItemTypeIds::fromBlockTypeId(BlockTypeIds::MOB_HEAD) || $this->inventory->getItem()->getTypeId() === ItemTypeIds::fromBlockTypeId(BlockTypeIds::PUMPKIN)){
 				$targetSlot = $this->armorInventory->getHelmet();
 				$isArmorSlot = true;
-			}elseif($item->isNull()){
+			}elseif($this->inventori->getItem()->isNull()){
 				$clickOffset = $clickPos->y - $this->y;
 
 				if($clickOffset >= 0.1 && $clickOffset < 0.55 && !$this->armorInventory->getItem(ArmorInventory::SLOT_FEET)->isNull()){
@@ -190,8 +198,8 @@ class ArmorStandEntity extends Living{
 					$isArmorSlot = true;
 				}
 			}
-
-			//$this->getWorld()->addSound($this, LevelSoundEventPacket::SOUND_MOB_ARMOR_STAND_PLACE); nanti
+			
+			$this->getWorld()->addSound($this->getPosition(), new ArmorStandPlaceEvent());
 
 			$this->tryChangeEquipment($player, $this->inventory->getItem(), $targetSlot, $isArmorSlot);
 
