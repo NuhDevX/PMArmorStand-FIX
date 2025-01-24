@@ -6,7 +6,6 @@ namespace muqsit\pmarmorstand\entity;
 
 use pocketmine\inventory\SimpleInventory;
 use pocketmine\block\VanillaBlocks;
-use pocketmine\network\mcpe\protocol\types\inventory\ItemStackWrapper;
 use pocketmine\network\mcpe\protocol\MobArmorEquipmentPacket;
 use pocketmine\block\BlockTypeIds;
 use pocketmine\item\ItemTypeIds;
@@ -62,6 +61,15 @@ class ArmorStandEntity extends Living{
 	protected $vibrateTimer = 0;
         private Inventory $inventory;
 	private SimpleInventory $simpleInventory;
+
+	protected int $maxDeadTicks = 0;
+
+	private ArmorStandPose $pose;
+	protected Item $item_in_hand;
+	protected bool $can_be_moved_by_currents = true;
+
+	/** @var ArmorStandEntityTicker[] */
+	protected array $armor_stand_entity_tickers = [];
 
 	public static function getNetworkTypeId() : string{
 		return EntityIds::ARMOR_STAND;
